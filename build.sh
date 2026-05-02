@@ -17,9 +17,9 @@ for parent in "$REPO_ROOT"/0x*/; do
             continue
         fi
         echo "Packing $parent_name/$child_name -> build/$archive_name"
-        (cd "$child" && tar czf "$BUILD_DIR/$archive_name" --exclude=eeprom.yaml .)
-        if [ -f "$child/eeprom.yaml" ]; then
-            cp "$child/eeprom.yaml" "$BUILD_DIR/firmware_${parent_name}_${child_name}.yaml"
+        (cd "$child" && tar czf "$BUILD_DIR/$archive_name" --exclude=eeprom.json .)
+        if [ -f "$child/eeprom.json" ]; then
+            cp "$child/eeprom.json" "$BUILD_DIR/firmware_${parent_name}_${child_name}.json"
         fi
     done
 done
