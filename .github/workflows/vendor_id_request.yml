@@ -1,0 +1,86 @@
+name: Vendor ID Request
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  process-vid-request:
+    if: startsWith(github.event.issue.title, '[VID]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse and validate request
+        id: validate
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_USER: ${{ github.event.issue.user.login }}
+        run: |
+          requested_id=$(printf '%s' "$ISSUE_BODY" | tr -d '\r' | awk 'p && NF{print; exit} /^### Requested ID$/{p=1}' | tr -d '[:space:]')
+          echo "Extracted ID: '$requested_id'"
+
+          if ! printf '%s' "$requested_id" | grep -qE '^0x[0-9A-Fa-f]{4}$'; then
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            echo "reason=Requested ID '${requested_id}' does not match required format 0x[0-9A-F]{4}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          dir_name=$(printf '%s' "$requested_id" | tr '[:upper:]' '[:lower:]')
+
+          if [ -d "$dir_name" ]; then
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            echo "reason=Vendor '${dir_name}' is already allocated" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "valid=true" >> "$GITHUB_OUTPUT"
+          echo "dir_name=$dir_name" >> "$GITHUB_OUTPUT"
+          echo "username=$ISSUE_USER" >> "$GITHUB_OUTPUT"
+
+      - name: Create directory, README, and CODEOWNERS entry
+        if: steps.validate.outputs.valid == 'true'
+        env:
+          DIR_NAME: ${{ steps.validate.outputs.dir_name }}
+          USERNAME: ${{ steps.validate.outputs.username }}
+        run: |
+          mkdir "$DIR_NAME"
+          printf '# %s\n\nVendor ID directory for @%s.\n' "$DIR_NAME" "$USERNAME" > "$DIR_NAME/README.md"
+          printf '\n/%s/\t@%s\n' "$DIR_NAME" "$USERNAME" >> .github/CODEOWNERS
+
+      - name: Commit and push
+        if: steps.validate.outputs.valid == 'true'
+        env:
+          DIR_NAME: ${{ steps.validate.outputs.dir_name }}
+          USERNAME: ${{ steps.validate.outputs.username }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$DIR_NAME/README.md" .github/CODEOWNERS
+          git commit -m "Reserve vendor ID $DIR_NAME for @$USERNAME"
+          git push
+
+      - name: Comment success and close issue
+        if: steps.validate.outputs.valid == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          DIR_NAME: ${{ steps.validate.outputs.dir_name }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" \
+            --body "Vendor ID \`$DIR_NAME\` has been reserved. The directory has been created and you have been added as its owner in CODEOWNERS."
+          gh issue close "$ISSUE_NUMBER" --reason completed
+
+      - name: Comment failure
+        if: steps.validate.outputs.valid == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REASON: ${{ steps.validate.outputs.reason }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" \
+            --body "Could not process vendor ID request: $REASON"
