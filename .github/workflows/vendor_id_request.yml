@@ -7,6 +7,7 @@ on:
 permissions:
   contents: write
   issues: write
+  pull-requests: write
 
 jobs:
   process-vid-request:
@@ -59,33 +60,40 @@ jobs:
           app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
-      - name: Commit and push
+      - name: Commit and open PR
         if: steps.validate.outputs.valid == 'true'
+        id: open-pr
         env:
           DIR_NAME: ${{ steps.validate.outputs.dir_name }}
           USERNAME: ${{ steps.validate.outputs.username }}
           GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git fetch origin main
-          git checkout main
+          git checkout -b "vid/${DIR_NAME}" origin/main
           git add "$DIR_NAME/README.md" .github/CODEOWNERS
           git commit -m "Reserve vendor ID $DIR_NAME for @$USERNAME"
-          git rebase origin/main
-          git push
+          git push -u origin "vid/${DIR_NAME}"
+          pr_url=$(gh pr create \
+            --title "Reserve vendor ID ${DIR_NAME} for @${USERNAME}" \
+            --body "Closes #${ISSUE_NUMBER}" \
+            --base main \
+            --head "vid/${DIR_NAME}")
+          echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
 
-      - name: Comment success and close issue
+      - name: Comment success
         if: steps.validate.outputs.valid == 'true'
         env:
           GH_TOKEN: ${{ steps.generate-token.outputs.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           DIR_NAME: ${{ steps.validate.outputs.dir_name }}
+          PR_URL: ${{ steps.open-pr.outputs.pr_url }}
         run: |
           gh issue comment "$ISSUE_NUMBER" \
-            --body "Vendor ID \`$DIR_NAME\` has been reserved. The directory has been created and you have been added as its owner in CODEOWNERS."
-          gh issue close "$ISSUE_NUMBER" --reason completed
+            --body "Vendor ID \`$DIR_NAME\` has been reserved. A pull request has been opened: $PR_URL"
 
       - name: Comment failure
         if: steps.validate.outputs.valid == 'false'
