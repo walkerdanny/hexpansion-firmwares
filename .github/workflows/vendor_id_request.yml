@@ -52,6 +52,13 @@ jobs:
           printf '# %s\n\nVendor ID directory for @%s.\n' "$DIR_NAME" "$USERNAME" > "$DIR_NAME/README.md"
           printf '\n/%s/\t@%s\n' "$DIR_NAME" "$USERNAME" >> .github/CODEOWNERS
 
+      - name: Generate a token
+        id: generate-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: Commit and push
         if: steps.validate.outputs.valid == 'true'
         env:
@@ -67,7 +74,7 @@ jobs:
       - name: Comment success and close issue
         if: steps.validate.outputs.valid == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           DIR_NAME: ${{ steps.validate.outputs.dir_name }}
         run: |
@@ -78,7 +85,7 @@ jobs:
       - name: Comment failure
         if: steps.validate.outputs.valid == 'false'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           REASON: ${{ steps.validate.outputs.reason }}
         run: |
